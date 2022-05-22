@@ -17,11 +17,11 @@ fi
 
 get_function_switch() {
 	case "$1" in
-		0)
-			echo "false"
-		;;
 		1)
 			echo "true"
+		;;
+		*)
+			echo "false"
 		;;
 	esac
 }
@@ -58,6 +58,7 @@ rm -rf /tmp/tmp_v2ray.json
 		local tcp="null"
 		local ws="null"
 		local h2="null"
+		local grpc="null"
 		local tls="null"
 		local xtls="null"
 		local vless_flow=""
@@ -73,12 +74,13 @@ rm -rf /tmp/tmp_v2ray.json
 		case "$(eval echo \$ssconf_basic_v2ray_network_security_$nu)" in
 		tls)
 			local tls="{
-					\"allowInsecure\": true,
-					\"serverName\": \"$(eval echo \ssconf_basic_v2ray_network_tlshost_$nu)\"
+					\"allowInsecure\":  $(get_function_switch $(eval echo \$ssconf_basic_allowinsecure_$nu)),
+					\"serverName\": \"$(eval echo \$ssconf_basic_v2ray_network_tlshost_$nu)\"
 					}"
 			;;
 		xtls)
 			local xtls="{
+					\"allowInsecure\":  $(get_function_switch $(eval echo \$ssconf_basic_allowinsecure_$nu)),
 					\"serverName\": \"$(eval echo \$ssconf_basic_v2ray_network_tlshost_$nu)\"
 					}"
 			local vless_flow="\"flow\": \"$(eval echo \$ssconf_basic_v2ray_network_flow_$nu)\","
@@ -163,6 +165,12 @@ rm -rf /tmp/tmp_v2ray.json
 				\"host\": $(get_h2_host $local_header)
 				}"
 			;;
+		grpc)
+		local local_serviceName=$(eval echo \$ssconf_basic_v2ray_serviceName_$nu)
+			local grpc="{
+				\"serviceName\": $(get_path $local_serviceName) 
+				}"
+			;;	
 		esac
 		# log area
 		cat >"/tmp/tmp_v2ray.json" <<-EOF
@@ -229,11 +237,12 @@ rm -rf /tmp/tmp_v2ray.json
 					  "tcpSettings": $tcp,
 					  "kcpSettings": $kcp,
 					  "wsSettings": $ws,
-					  "httpSettings": $h2
+					  "httpSettings": $h2,
+					  "grpcSettings": $grpc
 					},
 					"mux": {
 					  "enabled": $(get_function_switch $(eval echo \$ssconf_basic_v2ray_mux_enable_$nu)),
-					  "concurrency": $ssconf_basic_v2ray_mux_concurrency
+					  "concurrency": $ss_basic_v2ray_mux_concurrency
 					}
 				  }
 				]
@@ -271,7 +280,8 @@ rm -rf /tmp/tmp_v2ray.json
 					  "tcpSettings": $tcp,
 					  "kcpSettings": $kcp,
 					  "wsSettings": $ws,
-					  "httpSettings": $h2
+					  "httpSettings": $h2,
+					  "grpcSettings": $grpc
 					},
 					"mux": {
 					  "enabled": $(get_function_switch $(eval echo \$ssconf_basic_v2ray_mux_enable_$nu)),
@@ -336,6 +346,7 @@ rm -rf /tmp/tmp_v2ray.json
 				  "network": "tcp",
 				  "security": "tls",
 				  "tlsSettings": {
+					"allowInsecure": $(get_function_switch $(eval echo \$ssconf_basic_allowinsecure_$nu)),  
                     "serverName": "$(eval echo \$ssconf_basic_trojan_sni_$nu)"
                 }
 				}
@@ -362,7 +373,7 @@ create_trojango_json(){
 					\"host\":  \"\"
 					}"
 	fi
-
+	[ -z "$(eval echo \$ssconf_basic_v2ray_mux_concurrency_$nu)" ] && local ssconf_basic_v2ray_mux_concurrency=8
 		 #trojan go
 		 # 3335 for nat  
 		cat >"/tmp/tmp_trojango.json" <<-EOF
@@ -397,8 +408,8 @@ create_trojango_json(){
 					"prefer_ipv4": true
 				},
 				"mux": {
-					"enabled": false,
-					"concurrency": 8,
+					"enabled": $(get_function_switch $(eval echo \$ssconf_basic_v2ray_mux_enable_$nu)),
+					"concurrency": $ssconf_basic_v2ray_mux_concurrency,
 					"idle_timeout": 60
 				},
 				"websocket": $ws
@@ -445,8 +456,8 @@ create_trojango_json(){
 					"prefer_ipv4": true
 				},
 				"mux": {
-					"enabled": false,
-					"concurrency": 8,
+					"enabled": $(get_function_switch $(eval echo \$ssconf_basic_v2ray_mux_enable_$nu)),
+					"concurrency": $ssconf_basic_v2ray_mux_concurrency,
 					"idle_timeout": 60
 				},
 				"websocket": $ws
@@ -480,6 +491,8 @@ start_webtest(){
 	if [ "$array10" != "" ];then
 		if [ "$array9" == "1" ];then
 			ARG_V2RAY_PLUGIN="--plugin v2ray-plugin --plugin-opts $array10"
+		elif [ "$array9" == "2" ];then
+			ARG_V2RAY_PLUGIN="--plugin obfs-local --plugin-opts $array10"
 		else
 			ARG_V2RAY_PLUGIN=""
 		fi
@@ -525,7 +538,7 @@ start_webtest(){
 			dbus set ssconf_basic_webtest_$nu=$result
 			ss_local_pid=$(ps|grep -w ss-local|grep 23458|awk '{print $1}')			
 			if [ -n "$ARG_V2RAY_PLUGIN" ];then 
-				v2ray_plugin_pid=$(top -b -n 1 | grep 'v2ray-plugin' | awk -v ss_local_pid="$ss_local_pid"  '$2 == ss_local_pid {print $1}')
+				v2ray_plugin_pid=$(top -b -n 1 | grep -E 'v2ray-plugin|obfs-local' | awk -v ss_local_pid="$ss_local_pid"  '$2 == ss_local_pid {print $1}')
 				kill -9 $v2ray_plugin_pid  >/dev/null 2>&1
 			fi	
 			kill -9 $ss_local_pid >/dev/null 2>&1

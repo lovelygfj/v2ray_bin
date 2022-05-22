@@ -111,7 +111,7 @@ echo_version(){
 	echo "ss-redir		3.3.5		2020年9月15日编译"
 	echo "ss-tunnel		3.3.5		2020年9月15日编译"
 	echo "ss-local		3.3.5		2020年9月15日编译"
-	echo "v2ray-plugin		1.3.1		2020年6月01日编译"
+	echo "xray-plugin		1.4.0		2021年3月15日编译"
 	echo "ssrr-redir		3.5.3 		2018年11月25日编译"
 	echo "ssrr-tunnel		3.5.3 		2018年11月25日编译"
 	echo "ssrr-local		3.5.3 		2018年11月25日编译"
@@ -123,7 +123,7 @@ echo_version(){
 	echo "client_linux_arm5	20181114	kcptun"
 	echo "v2ray			$ss_basic_v2ray_version		$ss_basic_v2ray_date"
 	echo "xray			$ss_basic_xray_version		$ss_basic_xray_date"
-	echo "trojan-go		0.8.2		2021年4月1日编译"
+	echo "trojan-go		0.10.6		2021年9月14日编译"
 	echo -----------------------------------------------------------
 }
 
@@ -133,6 +133,7 @@ check_status(){
 	SS_TUNNEL=`pidof ss-tunnel`
 	SS_LOCAL=`ps|grep -w ss-local|grep 23456|awk '{print $1}'`
 	V2RAY_PLUGIN=`pidof v2ray-plugin`
+	OBFS_PLUGIN=`pidof obfs-local`
 	SSR_REDIR=`pidof rss-redir`
 	SSR_LOCAL=`ps|grep -w rss-local|grep 23456|awk '{print $1}'`
 	SSR_TUNNEL=`pidof rss-tunnel`
@@ -159,6 +160,7 @@ check_status(){
 		echo "程序		状态	PID"
 		[ -n "$SS_REDIR" ] && echo "ss-redir	工作中	pid：$SS_REDIR" || echo "ss-redir	未运行"
 		[ -n "$V2RAY_PLUGIN" ] && echo "v2ray-plugin	工作中	pid：$V2RAY_PLUGIN" || echo "v2ray-plugin	未运行"
+		[ -n "$OBFS_PLUGIN" ] && echo "simple-obfs	工作中	pid：$OBFS_PLUGIN" || echo "simple-obfs	未运行"
 	elif [ "$ss_basic_type" == "1" ];then
 		echo_version
 		echo

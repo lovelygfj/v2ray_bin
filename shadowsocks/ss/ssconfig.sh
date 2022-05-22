@@ -351,6 +351,8 @@ ss_arg(){
 	if [ -n "$ss_basic_ss_v2ray_plugin_opts" ];then
 		if [ "$ss_basic_ss_v2ray_plugin" == "1" ];then
 			ARG_V2RAY_PLUGIN="--plugin v2ray-plugin --plugin-opts $ss_basic_ss_v2ray_plugin_opts"
+		elif [ "$ss_basic_ss_v2ray_plugin" == "2" ];then
+			ARG_V2RAY_PLUGIN="--plugin obfs-local --plugin-opts $ss_basic_ss_v2ray_plugin_opts"	
 		else
 			ARG_V2RAY_PLUGIN=""
 		fi
@@ -1193,11 +1195,11 @@ start_koolgame(){
 
 get_function_switch() {
 	case "$1" in
-		0)
-			echo "false"
-		;;
 		1)
 			echo "true"
+		;;
+		*)
+			echo "false"
 		;;
 	esac
 }
@@ -1307,12 +1309,13 @@ create_v2ray_json(){
 		local tcp="null"
 		local ws="null"
 		local h2="null"
+		local grpc="null"
 		local tls="null"
 		local xtls="null"
 		local vless_flow=""
 
 		# tcp和kcp下tlsSettings为null，ws和h2下tlsSettings
-		[ -z "$ss_basic_v2ray_mux_concurrency" ] && local ss_basic_v2ray_mux_concurrency=8
+		[ -z "$(dbus get ss_basic_v2ray_mux_concurrency)" ] && local ss_basic_v2ray_mux_concurrency=8
 		[ "$ss_basic_v2ray_network_security" == "none" ] && local ss_basic_v2ray_network_security=""
 
 		# incase multi-domain input
@@ -1327,12 +1330,13 @@ create_v2ray_json(){
 		case "$ss_basic_v2ray_network_security" in
 		tls)
 			local tls="{
-					\"allowInsecure\": true,
+					\"allowInsecure\": $(get_function_switch $ss_basic_allowinsecure),
 					\"serverName\": \"$ss_basic_v2ray_network_tlshost\"
 					}"
 			;;
 		xtls)
 			local xtls="{
+					\"allowInsecure\": $(get_function_switch $ss_basic_allowinsecure),
 					\"serverName\": \"$ss_basic_v2ray_network_tlshost\"
 					}"
 			local vless_flow="\"flow\": \"$ss_basic_v2ray_network_flow\","
@@ -1409,6 +1413,11 @@ create_v2ray_json(){
 				\"host\": $(get_h2_host $ss_basic_v2ray_network_host)
 				}"
 			;;
+		grpc)
+			local grpc="{
+				\"serviceName\": $(get_path $ss_basic_v2ray_serviceName) 
+				}"
+			;;	
 		esac
 		# log area
 		cat >"$V2RAY_CONFIG_FILE_TMP" <<-EOF
@@ -1504,7 +1513,8 @@ create_v2ray_json(){
 					  "tcpSettings": $tcp,
 					  "kcpSettings": $kcp,
 					  "wsSettings": $ws,
-					  "httpSettings": $h2
+					  "httpSettings": $h2,
+					  "grpcSettings": $grpc
 					},
 					"mux": {
 					  "enabled": $(get_function_switch $ss_basic_v2ray_mux_enable),
@@ -1546,7 +1556,8 @@ create_v2ray_json(){
 					  "tcpSettings": $tcp,
 					  "kcpSettings": $kcp,
 					  "wsSettings": $ws,
-					  "httpSettings": $h2
+					  "httpSettings": $h2,
+					  "grpcSettings": $grpc
 					},
 					"mux": {
 					  "enabled": $(get_function_switch $ss_basic_v2ray_mux_enable),
@@ -1559,7 +1570,6 @@ create_v2ray_json(){
 		fi
 		echo_date 解析V2Ray配置文件...
 		cat "$V2RAY_CONFIG_FILE_TMP" | jq --tab . >"$V2RAY_CONFIG_FILE"
-		
 		echo_date V2Ray配置文件写入成功到"$V2RAY_CONFIG_FILE"
 	elif [ "$ss_basic_v2ray_use_json" == "1" ]; then
 		echo_date 使用自定义的v2ray json配置文件...
@@ -1719,6 +1729,7 @@ create_trojan_json(){
 				  "network": "tcp",
 				  "security": "tls",
 				  "tlsSettings": {
+					"allowInsecure": $(get_function_switch $ss_basic_allowinsecure),  
                     "serverName": "$ss_basic_trojan_sni"
                 }
 				}
@@ -1753,18 +1764,20 @@ create_trojango_json(){
 	rm -rf "$TROJANGO_CONFIG_FILE"
 	rm -rf "$TROJANGO2_CONFIG_FILE"
 	if  [ "$ss_basic_type" == "4" ] && [ "$ss_basic_trojan_binary" == "Trojan-Go" ]; then
-	if [ "$ss_basic_trojan_network" == "1" ]; then
-	[ -n "$ss_basic_v2ray_network_path" ] && local ss_basic_v2ray_network_path=$(echo "/$ss_basic_v2ray_network_path" | sed 's,//,/,')
-		local ws="{ \"enabled\": true,
-					\"path\":  \"$ss_basic_v2ray_network_path\",
-					\"host\":  \"$ss_basic_v2ray_network_host\"
-					}"
-	else
-		local ws="{ \"enabled\": false,
-					\"path\":  \"\",
-					\"host\":  \"\"
-					}"
-	fi
+		if [ "$ss_basic_trojan_network" == "1" ]; then
+		[ -n "$ss_basic_v2ray_network_path" ] && local ss_basic_v2ray_network_path=$(echo "/$ss_basic_v2ray_network_path" | sed 's,//,/,')
+			local ws="{ \"enabled\": true,
+						\"path\":  \"$ss_basic_v2ray_network_path\",
+						\"host\":  \"$ss_basic_v2ray_network_host\"
+						}"
+		else
+			local ws="{ \"enabled\": false,
+						\"path\":  \"\",
+						\"host\":  \"\"
+						}"
+		fi
+		[ -z "$(dbus get ss_basic_v2ray_mux_concurrency)" ] && local ss_basic_v2ray_mux_concurrency=8
+#		[ -z "$(dbus get ss_basic_trojan_sni)" ] && [ "$(dbus get ss_basic_server)" != "$ss_basic_v2ray_network_host" ] && local ss_basic_trojan_sni="$ss_basic_v2ray_network_host"
 		echo_date 生成Trojan Go配置文件...
 		 #trojan go
 		 # 3333 for nat  
@@ -1773,9 +1786,9 @@ create_trojango_json(){
 				"run_type": "nat",
 				"local_addr": "0.0.0.0",
 				"local_port": 3333,
-				"remote_addr": "$ss_basic_server",
+				"remote_addr": "$(dbus get ss_basic_server)",
 				"remote_port": $ss_basic_port,
-				"log_level": 1,
+				"log_level": 3,
 				"log_file": "/tmp/trojan-go_log.log",
 				"password": [
 				"$ss_basic_password"
@@ -1785,8 +1798,6 @@ create_trojango_json(){
 				"ssl": {
 					"verify": true,
 					"verify_hostname": true,
-					"cert": "/rom/etc/ssl/certs/ca-certificates.crt",
-					"cipher": "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-SHA:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:DHE-RSA-AES128-SHA:DHE-RSA-AES256-SHA:AES128-SHA:AES256-SHA:DES-CBC3-SHA",
 					"sni": "$ss_basic_trojan_sni",
 					"alpn": [
 					"http/1.1"
@@ -1800,8 +1811,8 @@ create_trojango_json(){
 					"prefer_ipv4": true
 				},
 				"mux": {
-					"enabled": false,
-					"concurrency": 8,
+					"enabled": $(get_function_switch $ss_basic_v2ray_mux_enable),
+					"concurrency": $ss_basic_v2ray_mux_concurrency,
 					"idle_timeout": 60
 				},
 				"websocket": $ws
@@ -1820,9 +1831,9 @@ create_trojango_json(){
 				"run_type": "client",
 				"local_addr": "127.0.0.1",
 				"local_port": 23456,
-				"remote_addr": "$ss_basic_server",
+				"remote_addr": "$(dbus get ss_basic_server)",
 				"remote_port": $ss_basic_port,
-				"log_level": 1,
+				"log_level": 3,
 				"log_file": "/tmp/trojan-go_log.log",
 				"password": [
 				"$ss_basic_password"
@@ -1832,8 +1843,6 @@ create_trojango_json(){
 				"ssl": {
 					"verify": true,
 					"verify_hostname": true,
-					"cert": "/rom/etc/ssl/certs/ca-certificates.crt",
-					"cipher": "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-SHA:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:DHE-RSA-AES128-SHA:DHE-RSA-AES256-SHA:AES128-SHA:AES256-SHA:DES-CBC3-SHA",
 					"sni": "$ss_basic_trojan_sni",
 					"alpn": [
 					"http/1.1"
@@ -1847,8 +1856,8 @@ create_trojango_json(){
 					"prefer_ipv4": true
 				},
 				"mux": {
-					"enabled": false,
-					"concurrency": 8,
+					"enabled": $(get_function_switch $ss_basic_v2ray_mux_enable),
+					"concurrency": $ss_basic_v2ray_mux_concurrency,
 					"idle_timeout": 60
 				},
 				"websocket": $ws
