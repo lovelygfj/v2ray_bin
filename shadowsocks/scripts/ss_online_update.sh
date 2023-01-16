@@ -652,7 +652,7 @@ add_vmess_servers(){
 	dbus set ssconf_basic_type_$v2rayindex=3
 	dbus set ssconf_basic_v2ray_protocol_$v2rayindex="vmess"
 	dbus set ssconf_basic_v2ray_xray_$v2rayindex="v2ray"
-	dbus set ssconf_basic_allowinsecure_$v2rayindex=0	
+	[ -n "$v2ray_group" ] && dbus set ssconf_basic_allowinsecure_$v2rayindex=1 || dbus set ssconf_basic_allowinsecure_$v2rayindex=0
 	dbus set ssconf_basic_v2ray_mux_enable_$v2rayindex=0
 	dbus set ssconf_basic_v2ray_use_json_$v2rayindex=0
 	dbus set ssconf_basic_v2ray_security_$v2rayindex="auto"
@@ -661,7 +661,7 @@ add_vmess_servers(){
 	dbus set ssconf_basic_port_$v2rayindex=$v2ray_port
 	dbus set ssconf_basic_server_$v2rayindex=$v2ray_add
 	dbus set ssconf_basic_v2ray_uuid_$v2rayindex=$v2ray_id
-	dbus set ssconf_basic_v2ray_alterid_$v2rayindex=$v2ray_aid
+	[ -n "$v2ray_group" ] && dbus set ssconf_basic_v2ray_alterid_$v2rayindex=0 || dbus set ssconf_basic_v2ray_alterid_$v2rayindex=$v2ray_aid
 	dbus set ssconf_basic_v2ray_network_security_$v2rayindex=$v2ray_tls
 	dbus set ssconf_basic_v2ray_network_$v2rayindex=$v2ray_net
 	case $v2ray_net in
@@ -830,7 +830,7 @@ add_trojan_servers(){
 	dbus set ssconf_basic_trojan_binary_$trojanindex=$binary
 	dbus set ssconf_basic_trojan_sni_$trojanindex=$sni
 	dbus set ssconf_basic_trojan_network_$trojanindex=$v2ray_net
-	dbus set ssconf_basic_allowinsecure_$trojanindex=0
+	[ -n "$group" ] && dbus set ssconf_basic_allowinsecure_$trojanindex=1 || dbus set ssconf_basic_allowinsecure_$trojanindex=0
 	dbus set ssconf_basic_ss_kcp_support_$trojanindex=$ss_kcp_support_tmp
 	dbus set ssconf_basic_ss_udp_support_$trojanindex=$ss_udp_support_tmp
 	dbus set ssconf_basic_ss_kcp_opts_$trojanindex=$ss_kcp_opts_tmp
@@ -941,6 +941,7 @@ get_vless_config(){
 	v2ray_tls=$(echo "$decode_link" | tr '?&#' '\n' | grep 'security=' | awk -F'=' '{print $2}')	 # tls不会是关闭状态
 	v2ray_flow=$(echo "$decode_link" | tr '?&#' '\n' | grep 'flow=' | awk -F'=' '{print $2}')
 	v2ray_path=$(echo "$decode_link" | tr '?&#' '\n' | grep 'path=' | awk -F'=' '{print $2}')
+	v2ray_seed=$(echo "$decode_link" | tr '?&#' '\n' | grep 'seed=' | awk -F'=' '{print $2}')
 	v2ray_host=$(echo "$decode_link" | tr '?&#' '\n' | grep 'host=' | awk -F'=' '{print $2}')
 	v2ray_tlshost=$(echo "$decode_link" | tr '?&#' '\n' | grep 'sni=' | awk -F'=' '{print $2}')
 	v2ray_serviceName=$(echo "$decode_link" | tr '?&#' '\n' | grep 'serviceName=' | awk -F'=' '{print $2}')
@@ -980,7 +981,7 @@ add_vless_servers(){
 	dbus set ssconf_basic_type_$v2rayindex=3
 	dbus set ssconf_basic_v2ray_protocol_$v2rayindex="vless"
 	dbus set ssconf_basic_v2ray_xray_$v2rayindex="xray"
-	dbus set ssconf_basic_allowinsecure_$v2rayindex=0
+	[ -n "$vless_group" ] && dbus set ssconf_basic_allowinsecure_$v2rayindex=1 || dbus set ssconf_basic_allowinsecure_$v2rayindex=0
 	dbus set ssconf_basic_v2ray_mux_enable_$v2rayindex=0
 	dbus set ssconf_basic_v2ray_use_json_$v2rayindex=0
 	dbus set ssconf_basic_v2ray_security_$v2rayindex="none"
@@ -999,7 +1000,7 @@ add_vless_servers(){
 		# tcp协议设置【 tcp伪装类型 (type)】和【tls/xtls域名 (SNI)】
 		# tcp + xtls 会比较多，别的组合不熟悉
 		dbus set ssconf_basic_v2ray_headtype_tcp_$v2rayindex="$v2ray_type"
-		[ "$v2ray_tls" = "xtls" ] && dbus set ssconf_basic_v2ray_network_flow_$v2rayindex=$v2ray_flow	
+		[ "${v2ray_tls#*x}" = "tls" ] && dbus set ssconf_basic_v2ray_network_flow_$v2rayindex=$v2ray_flow	
 
 		#  @@ 不确定这个变量是否需要添加
 		# [ -n "$v2ray_host" ] && dbus set ssconf_basic_v2ray_network_host_$v2rayindex=$v2ray_host 
@@ -1008,7 +1009,7 @@ add_vless_servers(){
 	kcp)
 		# kcp协议设置【 kcp伪装类型 (type)】
 		dbus set ssconf_basic_v2ray_headtype_kcp_$v2rayindex=$v2ray_type
-		[ -n "$v2ray_path" ] && dbus set ssconf_basic_v2ray_network_path_$v2rayindex=$v2ray_path
+		[ -n "$v2ray_seed" ] && dbus set ssconf_basic_v2ray_network_path_$v2rayindex=$v2ray_seed
 		;;
 	grpc)
 		# grpc协议设置【 grpc伪装类型 (type)】
@@ -1065,9 +1066,9 @@ update_vless_config(){
 		kcp)
 			# kcp协议
 			local_v2ray_type=$(dbus get ssconf_basic_v2ray_headtype_kcp_$index)
-			local_v2ray_path=$(dbus get ssconf_basic_v2ray_network_path_$index)
+			local_v2ray_seed=$(dbus get ssconf_basic_v2ray_network_path_$index)
 			[ "$local_v2ray_type" != "$v2ray_type" ] && dbus set ssconf_basic_v2ray_headtype_kcp_$index=$v2ray_type && let i+=1
-			[ "$local_v2ray_path" != "$v2ray_path" ] && dbus set ssconf_basic_v2ray_network_path_$index=$v2ray_path && let i+=1
+			[ "$local_v2ray_seed" != "$v2ray_seed" ] && dbus set ssconf_basic_v2ray_network_path_$index=$v2ray_seed && let i+=1
 			;;
 		grpc)
 			# grpc协议
@@ -1119,7 +1120,7 @@ get_trojan_go_config(){
 	v2ray_host=$(echo "$decode_link" | tr '?&#' '\n' | grep 'host=' | awk -F'=' '{print $2}')
 	sni=$(echo "$decode_link" | tr '?&#' '\n' | grep 'sni=' | awk -F'=' '{print $2}')
 	binary="Trojan-Go"
-
+	fingerprint="none"
 	#20201024---
 	ss_kcp_support_tmp="0"
 	ss_udp_support_tmp="0"
@@ -1171,6 +1172,7 @@ add_trojan_go_servers(){
 	[ -n "$v2ray_host" ] && dbus set ssconf_basic_v2ray_network_host_$trojangoindex=$v2ray_host
 	[ -n "$v2ray_path" ] && dbus set ssconf_basic_v2ray_network_path_$trojangoindex=$v2ray_path
 	dbus set ssconf_basic_trojan_sni_$trojangoindex="$sni"
+	dbus set ssconf_basic_fingerprint_$trojangoindex="$fingerprint"
 	dbus set ssconf_basic_v2ray_mux_enable_$trojangoindex=0
 	dbus set ssconf_basic_ss_kcp_support_$trojangoindex=$ss_kcp_support_tmp
 	dbus set ssconf_basic_ss_udp_support_$trojangoindex=$ss_udp_support_tmp
@@ -1311,6 +1313,7 @@ del_none_exist(){
 					dbus remove ssconf_basic_trojan_binary_$localindex	
 					dbus remove ssconf_basic_trojan_network_$localindex
 					dbus remove ssconf_basic_trojan_sni_$localindex
+					dbus remove ssconf_basic_fingerprint_$localindex
 					dbus remove ssconf_basic_type_$localindex
 					dbus remove ssconf_basic_use_kcp_$localindex
 					dbus remove ssconf_basic_use_lb_$localindex
@@ -1410,6 +1413,7 @@ remove_node_gap(){
 				[ -n "$(dbus get ssconf_basic_trojan_binary_$nu)" ] && dbus set ssconf_basic_trojan_binary_"$y"="$(dbus get ssconf_basic_trojan_binary_$nu)" && dbus remove ssconf_basic_trojan_binary_$nu
 				[ -n "$(dbus get ssconf_basic_trojan_network_$nu)" ] && dbus set ssconf_basic_trojan_network_"$y"="$(dbus get ssconf_basic_trojan_network_$nu)" && dbus remove ssconf_basic_trojan_network_$nu
 				[ -n "$(dbus get ssconf_basic_trojan_sni_$nu)" ] && dbus set ssconf_basic_trojan_sni_"$y"="$(dbus get ssconf_basic_trojan_sni_$nu)" && dbus remove ssconf_basic_trojan_sni_$nu
+				[ -n "$(dbus get ssconf_basic_fingerprint_$nu)" ] && dbus set ssconf_basic_fingerprint_"$y"="$(dbus get ssconf_basic_fingerprint_$nu)" && dbus remove ssconf_basic_fingerprint_$nu
 				[ -n "$(dbus get ssconf_basic_type_$nu)" ] && dbus set ssconf_basic_type_"$y"="$(dbus get ssconf_basic_type_$nu)" && dbus remove ssconf_basic_type_$nu
 				[ -n "$(dbus get ssconf_basic_v2ray_protocol_$nu)" ] && dbus set ssconf_basic_v2ray_protocol_"$y"="$(dbus get ssconf_basic_v2ray_protocol_$nu)" && dbus remove ssconf_basic_v2ray_protocol_$nu
 				[ -n "$(dbus get ssconf_basic_v2ray_xray_$nu)" ] && dbus set ssconf_basic_v2ray_xray_"$y"="$(dbus get ssconf_basic_v2ray_xray_$nu)" && dbus remove ssconf_basic_v2ray_xray_$nu
@@ -1482,7 +1486,7 @@ get_oneline_rule_now(){
 	
 	if [ "$ss_basic_online_links_goss" == "1" ];then
 		open_socks_23456
-		socksopen_b=`netstat -nlp|grep -w 23456|grep -E "local|v2ray|xray|trojan-go"`
+		socksopen_b=`netstat -nlp|grep -w 23456|grep -E "local|v2ray|xray|trojan-go|naive"`
 		if [ -n "$socksopen_b" ];then
 			echo_date "使用$(get_type_name $ss_basic_type)提供的socks代理网络下载..."
 			curl -k --connect-timeout 8 -s -L --socks5-hostname 127.0.0.1:23456 $ssr_subscribe_link > /tmp/ssr_subscribe_file.txt
@@ -1728,6 +1732,7 @@ start_update(){
 						dbus remove ssconf_basic_trojan_binary_$conf_nu
 						dbus remove ssconf_basic_trojan_network_$conf_nu
 						dbus remove ssconf_basic_trojan_sni_$conf_nu
+						dbus remove ssconf_basic_fingerprint_$conf_nu
 						dbus remove ssconf_basic_type_$conf_nu
 						dbus remove ssconf_basic_use_kcp_$conf_nu
 						dbus remove ssconf_basic_use_lb_$conf_nu
@@ -1886,6 +1891,7 @@ remove_online(){
 		dbus remove ssconf_basic_trojan_binary_$remove_nu
 		dbus remove ssconf_basic_trojan_network_$remove_nu
 		dbus remove ssconf_basic_trojan_sni_$remove_nu
+		dbus remove ssconf_basic_fingerprint_$remove_nu
 		dbus remove ssconf_basic_type_$remove_nu
 		dbus remove ssconf_basic_use_kcp_$remove_nu
 		dbus remove ssconf_basic_use_lb_$remove_nu

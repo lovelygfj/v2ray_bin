@@ -15,6 +15,8 @@ V2RAY_CONFIG_FILE_TMP="/tmp/v2ray_tmp.json"
 V2RAY_CONFIG_FILE="/koolshare/ss/v2ray.json"
 TROJANGO_CONFIG_FILE="/koolshare/ss/trojango.json"
 TROJANGO2_CONFIG_FILE="/koolshare/ss/trojango2.json"
+NAIVE_CONFIG_FILE="/koolshare/ss/naive.json"
+NAIVE2_CONFIG_FILE="/koolshare/ss/naive2.json"
 LOCK_FILE=/var/lock/koolss.lock
 DNSF_PORT=7913
 DNSC_PORT=53
@@ -32,6 +34,14 @@ game_on=`dbus list ss_acl_mode|cut -d "=" -f 2 | grep 3`
 [ -n "$game_on" ] || [ "$ss_basic_mode" == "3" ] && mangle=1
 ss_basic_password=`echo $ss_basic_password|base64_decode`
 ARG_V2RAY_PLUGIN=""
+
+if [ "$ss_basic_type" == "0" ];then
+	case $ss_basic_method in
+		2022-blake3-aes-128-gcm|2022-blake3-aes-256-gcm|2022-blake3-chacha20-poly1305) SS2022="Y";;
+		*)             SS2022="N";;
+	esac
+fi
+[ "$SS2022" == "Y" ] && ss_basic_type="3"
 
 # 兼容3.8.9及其以下
 [ -z "$ss_basic_type" ] && {
@@ -178,6 +188,12 @@ kill_process(){
 		killall ss-redir >/dev/null 2>&1
 	fi
 
+	naive_process=`pidof naive`
+	if [ -n "$naive_process" ];then 
+		echo_date 关闭naiveproxy进程...
+		killall naive >/dev/null 2>&1
+		kill -9 "$naive_process" >/dev/null 2>&1
+	fi
 	rssredir=`pidof rss-redir`
 	if [ -n "$rssredir" ];then 
 		echo_date 关闭ssr-redir进程...
@@ -213,6 +229,11 @@ kill_process(){
 	if [ -n "$chinadns1_process" ];then 
 		echo_date 关闭chinadns1进程...
 		killall chinadns1 >/dev/null 2>&1
+	fi
+	chinadnsNG_process=$(pidof chinadns-ng)
+	if [ -n "$chinadnsNG_process" ]; then
+		echo_date 关闭chinadns-ng进程...
+		killall chinadns-ng >/dev/null 2>&1
 	fi
 	cdns_process=`pidof cdns`
 	if [ -n "$cdns_process" ];then 
@@ -432,6 +453,12 @@ get_type_name() {
 		3)
 			echo "v2ray"
 		;;
+		4)
+			echo "trojan"
+		;;
+		5)
+			echo "naive"
+		;;
 	esac
 }
 
@@ -466,7 +493,10 @@ get_dns_name() {
 			echo "koolgame内置"
 		;;
 		9)
-		echo "SmartDNS"
+			echo "SmartDNS"
+		;;
+		10)
+			echo "ChinaDNS-NG"
 		;;
 	esac
 }
@@ -485,6 +515,9 @@ start_sslocal(){
 	elif [ "$ss_basic_type" == "4" ] && [ "$ss_basic_trojan_binary" == "Trojan-Go" ]; then
 		echo_date 开启trojan-go，提供socks5代理端口：23456 
 		trojan-go -config $TROJANGO2_CONFIG_FILE >/dev/null 2>&1 &	
+	elif [ "$ss_basic_type" == "5" ] ; then
+		echo_date 开启Naive Proxy，提供socks代理端口：23456 
+		naive $NAIVE2_CONFIG_FILE >/dev/null 2>&1 &		
 	fi
 }
 
@@ -590,6 +623,14 @@ start_dns(){
 		fi
 	fi
 
+	#start chinadns_ng
+	if [ "$ss_foreign_dns" == "10" ]; then
+		start_sslocal
+		echo_date 开启dns2socks，用于chinadns-ng的国外上游...
+		dns2socks 127.0.0.1:23456 "$ss_chinadns1_user" 127.0.0.1:1055 >/dev/null 2>&1 &
+		</koolshare/ss/rules/gfwlist.conf sed -e '/^server=/d' -e 's/ipset=\/.//g' -e 's/\/gfwlist//g' > /tmp/gfwlist.txt
+		chinadns-ng -N -l ${DNSF_PORT} -c ${CDN}#${DNSC_PORT} -t 127.0.0.1#1055 -g /tmp/gfwlist.txt -m /koolshare/ss/rules/cdn.txt -M >/dev/null 2>&1 &
+	fi
 
 	#start https_dns_proxy
 	if [ "$ss_foreign_dns" == "6" ];then
@@ -730,6 +771,7 @@ create_dnsmasq_conf(){
 	rm -rf /tmp/custom.conf
 	rm -rf /tmp/wblist.conf
 	rm -rf /tmp/gfwlist.conf
+	rm -rf /tmp/gfwlist.txt
 	rm -rf /jffs/configs/dnsmasq.d/custom.conf
 	rm -rf /jffs/configs/dnsmasq.d/wblist.conf
 	rm -rf /jffs/configs/dnsmasq.d/cdn.conf
@@ -854,7 +896,7 @@ create_dnsmasq_conf(){
 		else
 			# 其它情况，均使用国外优先模式，以下区分是否加载cdn.conf
 			# if [ "$ss_foreign_dns" == "2" ] || [ "$ss_foreign_dns" == "5" ] || [ "$ss_foreign_dns" == "9" -a "$ss_dns_china" == "13" ]; then
-			if [ "$ss_foreign_dns" == "2" ] || [ "$ss_foreign_dns" == "5" -a "$ss_dns_china" != "13" ] || [ "$ss_foreign_dns" == "10" ]; then
+			if [ "$ss_foreign_dns" == "2" -o "$ss_foreign_dns" == "5" -a "$ss_dns_china" != "13" -o "$ss_foreign_dns" == "10" ]; then
 				# 因为chinadns1 chinadns2自带国内cdn，所以也不需要cdn.conf
 				echo_date 自动判断dns解析使用国外优先模式...
 				echo_date 国外解析方案【$(get_dns_name $ss_foreign_dns)】自带国内cdn，无需加载cdn.conf，路由器开销小...
@@ -1333,6 +1375,7 @@ create_v2ray_json(){
 					\"allowInsecure\": $(get_function_switch $ss_basic_allowinsecure),
 					\"serverName\": \"$ss_basic_v2ray_network_tlshost\"
 					}"
+			[ "$ss_basic_v2ray_network_flow" != "none" -a "$ss_basic_v2ray_network_flow" != "" ] && local vless_flow="\"flow\": \"$ss_basic_v2ray_network_flow\","	|| 	local vless_flow=""
 			;;
 		xtls)
 			local xtls="{
@@ -1399,6 +1442,7 @@ create_v2ray_json(){
 				\"response\": null
 				}
 				}"
+			[ -z "$ss_basic_v2ray_network_path" ] && local kcp=$(echo $kcp |sed 's/"seed": "*, //')
 			;;
 		ws)
 			local ws="{
@@ -1415,6 +1459,8 @@ create_v2ray_json(){
 			;;
 		grpc)
 			local grpc="{
+				\"multiMode\": true,
+  				\"idle_timeout\": 13,
 				\"serviceName\": $(get_path $ss_basic_v2ray_serviceName) 
 				}"
 			;;	
@@ -1739,7 +1785,6 @@ create_trojan_json(){
 		EOF
 	
 		echo_date 解析Trojan配置文件...
-	#	cp "$V2RAY_CONFIG_FILE_TMP" /tmp/home/root/trojantmp.json
 		cat "$V2RAY_CONFIG_FILE_TMP" | jq --tab . >"$V2RAY_CONFIG_FILE"
 			
 		echo_date Trojan配置文件写入成功到"$V2RAY_CONFIG_FILE"
@@ -1778,6 +1823,7 @@ create_trojango_json(){
 		fi
 		[ -z "$(dbus get ss_basic_v2ray_mux_concurrency)" ] && local ss_basic_v2ray_mux_concurrency=8
 #		[ -z "$(dbus get ss_basic_trojan_sni)" ] && [ "$(dbus get ss_basic_server)" != "$ss_basic_v2ray_network_host" ] && local ss_basic_trojan_sni="$ss_basic_v2ray_network_host"
+		[ "$ss_basic_fingerprint" == "none" ] && local ss_basic_fingerprint=""
 		echo_date 生成Trojan Go配置文件...
 		 #trojan go
 		 # 3333 for nat  
@@ -1803,7 +1849,8 @@ create_trojango_json(){
 					"http/1.1"
 					],
 					"session_ticket": true,
-					"reuse_session": true
+					"reuse_session": true,
+					"fingerprint": "$ss_basic_fingerprint"
 				},
 				"tcp": {
 					"no_delay": true,
@@ -1848,7 +1895,8 @@ create_trojango_json(){
 					"http/1.1"
 					],
 					"session_ticket": true,
-					"reuse_session": true
+					"reuse_session": true,
+					"fingerprint": "$ss_basic_fingerprint"
 				},
 				"tcp": {
 					"no_delay": true,
@@ -1871,6 +1919,108 @@ create_trojango_json(){
 		EOF
 		
 		echo_date Trojan-Go配置文件写入成功到"$TROJANGO_CONFIG_FILE"
+	fi
+}
+
+create_naive_json(){
+	rm -rf "$NAIVE_CONFIG_FILE" "$NAIVE2_CONFIG_FILE"
+	if  [ "$ss_basic_type" == "5" ] ; then
+	
+		echo_date 生成NaiveProxy配置文件...
+		 #NaiveProxy
+		 # 3333 for nat  
+		cat >"$NAIVE_CONFIG_FILE" <<-EOF
+			{
+			"listen": "redir://0.0.0.0:3333",
+			"proxy": "${ss_basic_naive_protocol}://${ss_basic_naive_user}:${ss_basic_password}@$(dbus get ss_basic_server):$ss_basic_port"
+			}
+		EOF
+		echo_date NaiveProxy 配置文件写入成功到 "$NAIVE_CONFIG_FILE"
+		 #  23456 for socks
+		cat >"$NAIVE2_CONFIG_FILE" <<-EOF
+			{
+			"listen": "socks://127.0.0.1:23456",
+			"proxy": "${ss_basic_naive_protocol}://${ss_basic_naive_user}:${ss_basic_password}@$(dbus get ss_basic_server):$ss_basic_port"
+			}
+		EOF
+		
+		echo_date NaiveProxy 配置文件写入成功到 "$NAIVE2_CONFIG_FILE"
+	fi
+}
+
+
+create_ss2022_json(){
+	rm -rf "$V2RAY_CONFIG_FILE_TMP"
+	rm -rf "$V2RAY_CONFIG_FILE"
+	if  [ "$ss_basic_type" == "3" ] && [ "$SS2022" == "Y" ]; then
+		echo_date 生成 Shadowsocks 2022 配置文件...
+		 #Shadowsocks 2022 
+		 # inbounds area (23456 for socks5)  
+		cat >"$V2RAY_CONFIG_FILE_TMP" <<-EOF
+		{
+			"log": {
+				"access": "/dev/null",
+				"error": "/tmp/v2ray_log.log",
+				"loglevel": "error"
+			},
+				"inbounds": [
+					{
+						"port": 23456,
+						"listen": "0.0.0.0",
+						"protocol": "socks",
+						"settings": {
+							"auth": "noauth",
+							"udp": true,
+							"ip": "127.0.0.1",
+							"clients": null
+						},
+						"streamSettings": null
+					},
+					{
+						"listen": "0.0.0.0",
+						"port": 3333,
+						"protocol": "dokodemo-door",
+						"settings": {
+							"network": "tcp,udp",
+							"followRedirect": true
+						}
+					}
+				],
+			"outbounds": [
+			  {
+				"protocol": "shadowsocks",
+				"settings": {
+				  "servers": [
+					{
+					  "address": "$(dbus get ss_basic_server)",
+					  "port": $ss_basic_port,
+					  "method": "$ss_basic_method",
+					  "password": "$ss_basic_password"
+					}
+				  ]
+				}
+			  }
+			]
+		}
+		EOF
+	
+		echo_date 解析 Shadowsocks 2022 配置文件...
+		cat "$V2RAY_CONFIG_FILE_TMP" | jq --tab . >"$V2RAY_CONFIG_FILE"
+			
+		echo_date Shadowsocks 2022 配置文件写入成功到"$V2RAY_CONFIG_FILE"
+			
+		cd /koolshare/bin
+		echo_date 测试 Shadowsocks 2022 配置文件.....
+		result=$(xray -test -config="$V2RAY_CONFIG_FILE" | grep "Configuration OK.")
+		if [ -n "$result" ]; then
+			echo_date $result
+			echo_date Shadowsocks 2022 配置文件通过测试!!!
+		else
+			echo_date Shadowsocks 2022 配置文件没有通过测试，请检查设置!!!
+			rm -rf "$V2RAY_CONFIG_FILE_TMP"
+			rm -rf "$V2RAY_CONFIG_FILE"
+			close_in_five
+		fi
 	fi
 }
 
@@ -1898,11 +2048,11 @@ start_v2ray_xray() {
 		start_xray
 	elif [ "$ss_basic_type" == "4" ]; then
 		start_trojan
+	elif [ "$SS2022" == "Y" ]; then
+		start_ss2022		
 	else
 		start_v2ray
 	fi
-
-
 }
 
 start_xray() {
@@ -1961,21 +2111,58 @@ start_trojango() {
 	echo_date trojan-go启动成功，pid：$trojangoPID
 }
 
+start_naiveproxy() {
+	# naiveproxy start
+	cd /koolshare/bin
+	naive $NAIVE_CONFIG_FILE >/dev/null 2>&1 &
+	local naivePID
+	local i=10
+	until [ -n "$naivePID" ]; do
+		i=$(($i - 1))
+		naivePID=$(pidof naive)
+		if [ "$i" -lt 1 ]; then
+			echo_date "NaiveProxy进程启动失败！"
+			close_in_five
+		fi
+		sleep 1
+	done
+	echo_date NaiveProxy启动成功，pid：$naivePID
+}
+
+start_ss2022() {
+	# Shadowsocks 2022  start
+	cd /koolshare/bin
+	#export GOGC=30
+	xray run -config=/koolshare/ss/v2ray.json >/dev/null 2>&1 &
+	local ss2022PID
+	local i=10
+	until [ -n "$ss2022PID" ]; do
+		i=$(($i - 1))
+		ss2022PID=$(pidof xray)
+		if [ "$i" -lt 1 ]; then
+			echo_date "Shadowsocks 2022 进程启动失败！"
+			close_in_five
+		fi
+		sleep 1
+	done
+	echo_date Shadowsocks 2022 启动成功，pid：$ss2022PID
+}
+
 write_cron_job(){
 	sed -i '/ssupdate/d' /var/spool/cron/crontabs/* >/dev/null 2>&1
 	if [ "1" == "$ss_basic_rule_update" ]; then
 		echo_date 添加shadowsocks规则定时更新任务，每天"$ss_basic_rule_update_time"自动检测更新规则.
-		cru a ssupdate "0 $ss_basic_rule_update_time * * * /bin/sh /koolshare/scripts/ss_rule_update.sh"
+		cru a ssupdate "15 $ss_basic_rule_update_time * * * /bin/sh /koolshare/scripts/ss_rule_update.sh"
 	else
 		echo_date shadowsocks规则定时更新任务未启用！
 	fi
 	sed -i '/ssnodeupdate/d' /var/spool/cron/crontabs/* >/dev/null 2>&1
 	if [ "$ss_basic_node_update" = "1" ];then
 		if [ "$ss_basic_node_update_day" = "7" ];then
-			cru a ssnodeupdate "0 $ss_basic_node_update_hr * * * /koolshare/scripts/ss_online_update.sh 3"
+			cru a ssnodeupdate "2 $ss_basic_node_update_hr * * * /koolshare/scripts/ss_online_update.sh 3"
 			echo_date "设置自动更新节点订阅在每天 $ss_basic_node_update_hr 点。"
 		else
-			cru a ssnodeupdate "0 $ss_basic_node_update_hr * * $ss_basic_node_update_day /koolshare/scripts/ss_online_update.sh 3"
+			cru a ssnodeupdate "2 $ss_basic_node_update_hr * * $ss_basic_node_update_day /koolshare/scripts/ss_online_update.sh 3"
 			echo_date "设置自动更新节点订阅在星期 $ss_basic_node_update_day 的 $ss_basic_node_update_hr 点。"
 		fi
 	fi
@@ -2626,13 +2813,16 @@ apply_ss(){
 	create_dnsmasq_conf
 	# do not re generate json on router start, use old one
 	[ -z "$WAN_ACTION" ] && [ "$ss_basic_type" != "3" ] && [ "$ss_basic_type" != "4" ] && create_ss_json
-	[ -z "$WAN_ACTION" ] && [ "$ss_basic_type" = "3" ] && create_v2ray_json
+	[ -z "$WAN_ACTION" ] && [ "$ss_basic_type" = "3" ] && [ "$SS2022" != "Y" ] && create_v2ray_json
+	[ -z "$WAN_ACTION" ] && [ "$ss_basic_type" = "3" ] && [ "$SS2022" == "Y" ] && create_ss2022_json
 	[ -z "$WAN_ACTION" ] && [ "$ss_basic_type" = "4" -a "$ss_basic_trojan_binary" == "Trojan" ] && create_trojan_json
 	[ -z "$WAN_ACTION" ] && [ "$ss_basic_type" = "4" -a "$ss_basic_trojan_binary" == "Trojan-Go" ] && create_trojango_json
+	[ -z "$WAN_ACTION" ] && [ "$ss_basic_type" = "5" ] && create_naive_json
 	[ "$ss_basic_type" == "0" ] || [ "$ss_basic_type" == "1" ] && start_ss_redir
 	[ "$ss_basic_type" == "2" ] && start_koolgame
 	[ "$ss_basic_type" == "3" ] || [ "$ss_basic_type" == "4" -a "$ss_basic_trojan_binary" == "Trojan" ] && start_v2ray_xray
 	[ "$ss_basic_type" == "4" -a "$ss_basic_trojan_binary" == "Trojan-Go" ] && start_trojango
+	[ -z "$WAN_ACTION" ] && [ "$ss_basic_type" = "5" ] && start_naiveproxy
 	[ "$ss_basic_type" != "2" ] && start_kcp
 	[ "$ss_basic_type" != "2" ] && start_dns
 	#===load nat start===
